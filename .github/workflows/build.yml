@@ -74,7 +74,7 @@ jobs:
           mkdir -p "$ANDROID_BUILD_TOP/.repo/local_manifests"
           cp manifests/fios_violet.xml "$ANDROID_BUILD_TOP/.repo/local_manifests/fios_violet.xml"
           cd "$ANDROID_BUILD_TOP"
-          if [ ! -d .repo ]; then
+          if [ ! -d .repo/manifests ]; then
             repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs
           fi
           repo sync -c --no-clone-bundle --no-tags -j"$(nproc)" --fail-fast
@@ -98,7 +98,7 @@ jobs:
           cd "$ANDROID_BUILD_TOP"
           if [ "${{ inputs.clean }}" = "true" ]; then rm -rf "$OUT_DIR"; fi
           source build/envsetup.sh
-          lunch lineage_violet-userdebug
+          lunch fios_violet-userdebug
           mka bacon -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/fios-build.log"
 
       - name: Collect artifacts and checksums
