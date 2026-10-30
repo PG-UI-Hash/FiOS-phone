@@ -21,8 +21,8 @@ jobs:
     runs-on: [self-hosted, Linux, X64, fios-builder]
     timeout-minutes: 720
     env:
-      ANDROID_BUILD_TOP: ${{ github.workspace }}/android
-      OUT_DIR: ${{ github.workspace }}/android/out
+      ANDROID_BUILD_TOP: /opt/fios/android
+      OUT_DIR: /opt/fios/android/out
 
     steps:
       - name: Checkout FiOS sources
@@ -70,6 +70,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo mkdir -p /opt/fios
+          sudo chown -R "$USER":"$USER" /opt/fios
           mkdir -p "$ANDROID_BUILD_TOP/.repo/local_manifests"
           cp manifests/fios_violet.xml "$ANDROID_BUILD_TOP/.repo/local_manifests/fios_violet.xml"
           cd "$ANDROID_BUILD_TOP"
@@ -90,13 +92,15 @@ jobs:
         run: |
           set -euo pipefail
           cd "$ANDROID_BUILD_TOP"
-          VENDOR_BLOBS_DIR="${VENDOR_BLOBS_DIR:-/opt/fios/vendor}"
-          if [ -d "$VENDOR_BLOBS_DIR/xiaomi/violet" ] && [ -d "$VENDOR_BLOBS_DIR/xiaomi/sm6150-common" ]; then
+          # Preferred: extract directly into this persistent source tree with the phone attached.
+          if [ -d vendor/xiaomi/violet ] && [ -d vendor/xiaomi/sm6150-common ]; then
+            echo "Using vendor trees extracted directly into the Android source tree."
+          elif [ -d /opt/fios/vendor/xiaomi/violet ] && [ -d /opt/fios/vendor/xiaomi/sm6150-common ]; then
             mkdir -p vendor/xiaomi
-            cp -a "$VENDOR_BLOBS_DIR/xiaomi/violet" vendor/xiaomi/
-            cp -a "$VENDOR_BLOBS_DIR/xiaomi/sm6150-common" vendor/xiaomi/
+            cp -a /opt/fios/vendor/xiaomi/violet vendor/xiaomi/
+            cp -a /opt/fios/vendor/xiaomi/sm6150-common vendor/xiaomi/
           else
-            echo "::error::Provide legally obtained proprietary trees in VENDOR_BLOBS_DIR/xiaomi/{violet,sm6150-common} on the self-hosted runner."
+            echo "::error::Vendor trees missing. Extract from a compatible stock violet device into vendor/xiaomi/{violet,sm6150-common}, or stage them under /opt/fios/vendor/xiaomi/."
             exit 1
           fi
 
