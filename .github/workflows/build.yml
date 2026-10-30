@@ -1,0 +1,122 @@
+name: FiOS Mobile Android 16
+
+on:
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: Clean output before building
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fios-android16-violet
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, Linux, X64, fios-builder]
+    timeout-minutes: 720
+    env:
+      ANDROID_BUILD_TOP: ${{ github.workspace }}/android
+      OUT_DIR: ${{ github.workspace }}/android/out
+
+    steps:
+      - name: Checkout FiOS sources
+        uses: actions/checkout@v4
+
+      - name: Validate Ubuntu build host
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          echo "OS: $PRETTY_NAME"
+          test "$(uname -m)" = "x86_64"
+          command -v git
+          command -v python3
+          command -v make
+          command -v gcc
+          command -v g++
+          command -v repo
+          df -h .
+          free -h
+          test "$(df --output=avail -k . | tail -1)" -ge 250000000
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop openjdk-17-jdk pngcrush python3 python3-pip rsync schedtool squashfs-tools unzip wget zip zlib1g-dev
+
+      - name: Configure Git and Repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "FiOS Build Bot"
+          git config --global user.email "actions@users.noreply.github.com"
+          if ! command -v repo >/dev/null 2>&1; then
+            sudo install -d -m 0755 /usr/local/bin
+            curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo -o /tmp/repo
+            curl -fsSL https://storage.googleapis.com/git-repo-downloads/repo.asc -o /tmp/repo.asc
+            gpg --keyserver hkps://keyserver.ubuntu.com --recv-keys 8B57C5C2836F4BEB
+            gpg --verify /tmp/repo.asc /tmp/repo
+            sudo install -m 0755 /tmp/repo /usr/local/bin/repo
+          fi
+
+      - name: Initialize Android 16 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_BUILD_TOP/.repo/local_manifests"
+          cp manifests/fios_violet.xml "$ANDROID_BUILD_TOP/.repo/local_manifests/fios_violet.xml"
+          cd "$ANDROID_BUILD_TOP"
+          if [ ! -d .repo ]; then
+            repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs
+          fi
+          repo sync -c --no-clone-bundle --no-tags -j"$(nproc)" --fail-fast
+
+      - name: Validate device and vendor sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ANDROID_BUILD_TOP"
+          test -f device/xiaomi/violet/lineage_violet.mk
+          test -f device/xiaomi/violet/BoardConfig.mk
+          test -f device/xiaomi/sm6150-common/BoardConfigCommon.mk
+          test -d kernel/xiaomi/sm6150
+          test -f vendor/xiaomi/violet/violet-vendor.mk || { echo "::error::Missing vendor/xiaomi/violet. Extract legally obtained device blobs before building."; exit 1; }
+          test -f vendor/xiaomi/sm6150-common/BoardConfigVendor.mk || { echo "::error::Missing vendor/xiaomi/sm6150-common proprietary files."; exit 1; }
+
+      - name: Build Android 16 violet userdebug
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ANDROID_BUILD_TOP"
+          if [ "${{ inputs.clean }}" = "true" ]; then rm -rf "$OUT_DIR"; fi
+          source build/envsetup.sh
+          lunch lineage_violet-userdebug
+          mka bacon -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/fios-build.log"
+
+      - name: Collect artifacts and checksums
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          find "$OUT_DIR/target/product/violet" -maxdepth 1 -type f \( -name '*.zip' -o -name '*.img' -o -name '*.txt' \) -exec cp -t artifacts {} + 2>/dev/null || true
+          if [ -f "$GITHUB_WORKSPACE/fios-build.log" ]; then cp "$GITHUB_WORKSPACE/fios-build.log" artifacts/; fi
+          { echo "FiOS Mobile Android 16 build"; echo "Repository: $GITHUB_REPOSITORY"; echo "Commit: $GITHUB_SHA"; echo "Run: $GITHUB_RUN_ID"; echo "Target: lineage_violet-userdebug"; echo "Built at: $(date -u +%FT%TZ)"; } > artifacts/build-metadata.txt
+          if compgen -G 'artifacts/*.zip' > /dev/null || compgen -G 'artifacts/*.img' > /dev/null; then (cd artifacts && sha256sum *.zip *.img > SHA256SUMS.txt); else echo "No ROM images were produced." >> artifacts/build-metadata.txt; fi
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fios-android16-violet-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
