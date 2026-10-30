@@ -40,7 +40,6 @@ jobs:
           command -v make
           command -v gcc
           command -v g++
-          command -v repo
           df -h .
           free -h
           test "$(df --output=avail -k . | tail -1)" -ge 250000000
@@ -78,6 +77,28 @@ jobs:
             repo init -u https://github.com/LineageOS/android.git -b lineage-23.2 --git-lfs
           fi
           repo sync -c --no-clone-bundle --no-tags -j"$(nproc)" --fail-fast
+
+      - name: Register FiOS product
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_BUILD_TOP
+          bash scripts/register-product.sh
+
+      - name: Stage locally prepared proprietary vendor trees
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ANDROID_BUILD_TOP"
+          VENDOR_BLOBS_DIR="${VENDOR_BLOBS_DIR:-/opt/fios/vendor}"
+          if [ -d "$VENDOR_BLOBS_DIR/xiaomi/violet" ] && [ -d "$VENDOR_BLOBS_DIR/xiaomi/sm6150-common" ]; then
+            mkdir -p vendor/xiaomi
+            cp -a "$VENDOR_BLOBS_DIR/xiaomi/violet" vendor/xiaomi/
+            cp -a "$VENDOR_BLOBS_DIR/xiaomi/sm6150-common" vendor/xiaomi/
+          else
+            echo "::error::Provide legally obtained proprietary trees in VENDOR_BLOBS_DIR/xiaomi/{violet,sm6150-common} on the self-hosted runner."
+            exit 1
+          fi
 
       - name: Validate device and vendor sources
         shell: bash
